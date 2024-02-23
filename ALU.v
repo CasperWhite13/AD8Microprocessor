@@ -21,12 +21,12 @@
 * Revision History:
 *            Date                       By                                Change Notes
 * ----------------------- ---------------------- ------------------------------------------
-*  7th October 2023       Devyam Seal            default values were changed to ‘zzz’
+*  7th October 2023       Devyam Seal            default values were changed to 'zzz'
 *   
 *  8th October 2023       Aditi Sharma           default cases were added to case 
 *                                                statements                  
 *                                      
-*   
+*  22nd February 2024     Aditi Sharma           Made calculations asynchronous
 */
 //////////////////////////////////////////////////////////////////////////////////
 
@@ -34,41 +34,54 @@
 module ALU(
     input clk,
     //input rst,
-    output reg [7:0] Out, //ALU output
-    output [3:0] Flag, // Flag register
-    input [7:0] RN, // Register Number
-    input [7:0] OD, // Operand
-    input [7:0] AC, // Accumulator
-    input [7:0] opcode // opcode
+    output [7:0] Out,
+    output [3:0] Flag,
+    input [7:0] RN,
+    input [7:0] OD,
+    input [7:0] AC,
+    input [7:0] opcode
 );
 
-    reg [7:0] A, B; // Variables to assign RN/OD/AC
-    reg [2:0] inst; // Instruction  
+reg [7:0] A, B;
+reg [2:0] inst;  
         
         
 
-    parameter [2:0] CP = 3'b000; // Compare based on OPCODE
-    parameter [2:0] AND = 3'b001; // AND based on OPCODE
-    parameter [2:0] OR = 3'b010; // OR based on OPCODE
-    parameter [2:0] XOR = 3'b011; // XOR based on OPCODE
-    parameter [2:0] CM = 3'b100; // Complement based on OPCODE
-    parameter [2:0] ADD = 3'b101; // ADD based on OPCODE
-    parameter [2:0] SUB = 3'b110; // SUB based on OPCODE
+parameter [2:0] CP = 3'b000;
+parameter [2:0] AND = 3'b001;
+parameter [2:0] OR = 3'b010;
+parameter [2:0] XOR = 3'b011;
+parameter [2:0] CM = 3'b100;
+parameter [2:0] ADD = 3'b101;
+parameter [2:0] SUB = 3'b110;
 
-reg Carry, Zero, Parity, Sign; // Flag bits
+reg Carry, Zero, Parity, Sign;
+wire carry2;
 
-initial  // Initialising Flag bits
+initial
 begin
     Carry <=0;
     Zero <= 0;
     Parity <= 0;
     Sign <= 0;
-    Out <= 0;
+    //Out <= 0;
 end
 
 
 always @(posedge clk)
-    begin                            // Assigning opcode bits needed to decode instruction based on the type of instruction (One Register/Two Register/ Zero Register)
+begin
+
+    $monitor("%t, ALU RN in = is %b" , $time, RN);
+    $monitor("%t, ALU OD in = is %b" , $time, OD);
+    $monitor("%t, ALU out = is %b" , $time, Out);
+    $monitor("%t, carry = is %b" , $time, carry2);
+    $monitor("%t, inst = is %b" , $time, inst);
+    $monitor("%t, A = is %b" , $time, A);
+    $monitor("%t, B = is %b" , $time, B);
+    
+    
+    Sign <= 1'b0;
+    
     if(opcode[7:3] == 5'b00001)
         begin
             inst <= opcode[2:0];
@@ -85,7 +98,7 @@ always @(posedge clk)
         end
 
     
-        if (opcode[7:3] == 5'b00001)  // Assigning variables to be used by ALU based on instruction
+     if (opcode[7:3] == 5'b00001)
         begin
             A <= AC;
             B <= OD;
@@ -110,46 +123,25 @@ always @(posedge clk)
         end
 end
 
-always @(*)
-begin
-
-    $monitor("%t, ALU RN in = is %b" , $time, RN);
-    $monitor("%t, ALU OD in = is %b" , $time, OD);
-    $monitor("%t, ALU out = is %b" , $time, Out);
     
 
-    Sign <= 1'b0;
+ assign {carry2,Out}=  (inst == CM) ? {1'b0,~A} : (
+                       (inst == AND)? {1'b0,A & B} : (
+                       (inst == OR) ? {1'b0,A | B} : (
+                       (inst == XOR)? {1'b0,A ^ B} : (
+                       (inst == ADD)?  (A + B) : (
+                       (inst == SUB)?  (A - B) : (
+                       (opcode[7:3] == 5'b01111)? {1'b0,RN + AC} : (
+                       (opcode == 8'h6)? {1'b0,AC << OD} : (
+                       (opcode == 8'h7)? {1'b0,AC >> OD} : {1'b0,8'b0} ))))))));
+                                              
+                       
+                        
  
-
-    case (inst)  // Defining Instructions
-        CM: 
-            begin
-                Out <= ~A;
-                Carry <= 1'b0;
-            end
-        AND:
-            begin
-                Out <= A & B;
-                Carry <= 1'b0;
-            end
-        OR: 
-            begin
-                Out <= A | B;
-                Carry <= 1'b0;
-            end
-        XOR:
-            begin
-                Out <= A ^ B;
-                Carry <= 1'b0;
-            end
-        ADD:
-            begin
-                {Carry, Out} <= A + B;
-            end
-        SUB:
-            begin
-                {Sign, Out} <= A - B;
-            end
+    always @(posedge clk)
+    begin
+        case (inst)
+        
         CP:
             begin
                 if(B<A)
@@ -170,21 +162,12 @@ begin
             end
     endcase
 
-    case (opcode[7:3])  // Defining ADIR
-        5'b01111: Out <= RN + AC;
-    endcase
-
-    case (opcode)              // Defining Rotate instructions
-        8'h6: Out <= AC << OD;
-        8'h7: Out <= AC >> OD;
-    endcase
-
-    Parity <= ^Out;  // Defining parity
-    Zero <= ~(|Out); // Defining Zero
+    Parity <= ^Out;
+    Zero <= ~(|Out);
     
 
 end
 
-    assign Flag = {Carry, Zero, Sign, Parity};  // Assigning Flag bits to Flag Register
+assign Flag = {(Carry||carry2), Zero, Sign, Parity};
 
 endmodule
